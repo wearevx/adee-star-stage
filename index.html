@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style></head><body><title>Adee's Star Stage</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Star Stage"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style></head><body><title>Adee's Star Stage</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -214,9 +214,14 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
 /* ---------- practice ---------- */
 .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.steps span { text-align: center; font-size: 13px; font-weight: 800; padding: 6px 4px; border-radius: 999px; background: var(--paper); border: 2px solid var(--line); color: var(--muted); }
-.steps span.on { background: var(--velvet); border-color: var(--velvet); color: #fff; }
-.steps span.done { border-color: var(--mint); color: var(--mint-deep); }
+.steps button { border: 2px solid var(--line); }
+.pnav { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
+.pnav .pn { font-size: 13px; font-weight: 800; color: var(--muted); text-align: center; }
+.pnav #pNextP { justify-self: end; }
+.btn.sm { min-height: 40px; padding: 6px 12px; font-size: 15px; border-radius: 14px; box-shadow: 0 3px 0 var(--line); }
+.steps span, .steps button { text-align: center; font-size: 13px; font-weight: 800; padding: 6px 4px; border-radius: 999px; background: var(--paper); border: 2px solid var(--line); color: var(--muted); }
+.steps button.on, .steps span.on { background: var(--velvet); border-color: var(--velvet); color: #fff; }
+.steps button.done, .steps span.done { border-color: var(--mint); color: var(--mint-deep); }
 .bigpic { font-size: 92px; line-height: 1; text-align: center; padding: 8px 0 0; filter: drop-shadow(0 6px 0 rgba(58, 30, 71, .08)); }
 .bigpic.pop { animation: popin .45s cubic-bezier(.3, 1.6, .5, 1); }
 @keyframes popin { from { transform: scale(.5); opacity: 0; } }
@@ -468,11 +473,36 @@ const fmtDay = s => { const [y, m, d] = s.split('-').map(Number); return new Dat
 const KEY = 'adee-star-stage-v1';
 function fresh() { return { v: 1, stars: 0, sparkles: 0, ch: {}, path: {}, games: {}, wear: {}, days: {}, stageRuns: 0, story: 0, reward: '', goal: 30, met: 0, updatedAt: 0 }; }
 let S = fresh();
+/* progress is kept in three places on the phone, so one being cleared doesn't lose Adee's stars */
+function readCookie() { try { const m = document.cookie.match(/(?:^|; )adeeStage=([^;]*)/); return m ? JSON.parse(decodeURIComponent(m[1])) : null; } catch (e) { return null; } }
+function writeCookie() { try { const c = Object.assign({}, S); delete c.days; document.cookie = 'adeeStage=' + encodeURIComponent(JSON.stringify(c)) + '; max-age=31536000; path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : ''); } catch (e) {} }
+function idb(mode, val) {
+  return new Promise(res => {
+    try {
+      const rq = indexedDB.open('adee-star-stage', 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+      rq.onerror = () => res(null);
+      rq.onsuccess = () => {
+        try {
+          const tx = rq.result.transaction('kv', mode === 'get' ? 'readonly' : 'readwrite'), st = tx.objectStore('kv');
+          if (mode === 'get') { const g = st.get('state'); g.onsuccess = () => res(g.result || null); g.onerror = () => res(null); }
+          else { st.put(val, 'state'); tx.oncomplete = () => res(true); tx.onerror = () => res(null); }
+        } catch (e) { res(null); }
+      };
+    } catch (e) { res(null); }
+  });
+}
+function adopt(cand) { if (cand && (cand.updatedAt || 0) > (S.updatedAt || 0)) { S = Object.assign(fresh(), S.days ? { days: S.days } : {}, cand); return true; } return false; }
 try { const raw = localStorage.getItem(KEY); if (raw) S = Object.assign(fresh(), JSON.parse(raw)); } catch (e) {}
-let dbDoc = null, pushT = null;
+adopt(readCookie());
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+idb('get').then(v => { if (v && adopt(v)) { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} renderPurse(); if (!splashUp) route(cur.name, cur.p); } });
+let dbDoc = null, pushT = null, idbT = null;
 function save() {
   S.updatedAt = Date.now();
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+  writeCookie();
+  clearTimeout(idbT); idbT = setTimeout(() => idb('put', JSON.parse(JSON.stringify(S))), 400);
   if (dbDoc) { clearTimeout(pushT); pushT = setTimeout(() => { dbDoc.set(JSON.parse(JSON.stringify(S))).catch(() => {}); }, 1200); }
 }
 function dayLog() { const d = today(); S.days[d] = S.days[d] || { stars: 0, did: {} }; return S.days[d]; }
@@ -712,18 +742,22 @@ const V = () => document.getElementById('view');
 let cur = { name: 'home', p: {} };
 let routeId = 0;
 let splashUp = true;
+const hist = [];
 function route(name, p = {}) {
   stopAll();
   routeId++;
   if (typeof abortListening === 'function') abortListening();
   if (typeof point === 'function') point(null);
+  if (!p._back && cur && !splashUp && (cur.name !== name || cur.p.n !== p.n || cur.p.li !== p.li)) { hist.push(cur); if (hist.length > 30) hist.shift(); }
+  if (name === 'home') hist.length = 0;
   cur = { name, p };
+  if (['practice', 'path', 'next', 'puzzle', 'stage', 'story'].includes(name)) { const q = Object.assign({}, p); delete q._back; S.last = { name, p: q }; save(); }
   const back = document.getElementById('back');
   back.hidden = name === 'home';
   window.scrollTo(0, 0);
   (VIEWS[name] || VIEWS.home)(p);
 }
-document.getElementById('back').addEventListener('click', () => route(cur.p.backTo || 'home', cur.p.backP || {}));
+document.getElementById('back').addEventListener('click', () => { const prev = hist.pop(); if (prev) route(prev.name, Object.assign({}, prev.p, { _back: true })); else route('home'); });
 const setWhere = t => document.getElementById('where').textContent = t;
 const h = (tag, attrs = {}, html = '') => { const e = document.createElement(tag); Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v)); e.innerHTML = html; return e; };
 const $ = sel => document.querySelector(sel);
@@ -898,6 +932,15 @@ function micFellBack() { toast('🎤', 'Jenny can’t hear on this phone, so Ade
 /* ======================= views ======================= */
 const VIEWS = {};
 
+function lastLabel() {
+  const l = S.last || {}, p = l.p || {};
+  if (l.name === 'practice') return 'Phrase ' + p.n;
+  if (l.name === 'path') return 'Picture path · ' + LINES[p.li].title;
+  if (l.name === 'next') return "What's next? · " + LINES[p.li].title;
+  if (l.name === 'puzzle') return 'Puzzle · ' + LINES[p.li].title;
+  if (l.name === 'stage') return 'Big Stage';
+  return 'Story time';
+}
 VIEWS.home = () => {
   setWhere("Adee's Star Stage");
   const sleeps = sleepsToShow();
@@ -909,6 +952,7 @@ VIEWS.home = () => {
   <section class="marquee"><p>Concert 2026 · The Greatest Showman</p><h1>Adee is Jenny Lind!</h1><p>Scene 17 · The Team</p></section>
   <div class="ticket"><div><div class="k">Admit one · show day</div><div class="v">${fmtDay(SHOW)}</div></div>${ready}</div>
   <section class="jstage"><div id="homeJenny">${jennySVG(S.wear)}</div><div class="bubble" id="homeBubble">Hi ${NAME}! Tap a mission and let's practise together.</div></section>
+  ${S.last ? `<button class="btn velvet wide" id="carry">▶ Carry on: ${lastLabel()}</button>` : ''}
   <section class="mission"><div class="eyebrow">Today's mission</div><h2>${plan[2]}</h2><div id="tasks" style="display:flex;flex-direction:column;gap:10px"></div></section>
   ${prize}
   <section class="tiles">
@@ -929,7 +973,8 @@ VIEWS.home = () => {
     b.addEventListener('click', t.go); box.appendChild(b);
   });
   const firstTodo = box.querySelector('.task:not(.done)');
-  point(firstTodo || $('#tStage'));
+  on('#carry', () => route(S.last.name, S.last.p));
+  point($('#carry') || firstTodo || $('#tStage'));
   on('#tStage', () => route('stage'));
   on('#tMap', () => route('map'));
   on('#tStory', () => route('story'));
@@ -998,10 +1043,20 @@ VIEWS.practice = (p) => {
   let tries = 0;
   const tgt = targetOf([c]);
   const m = () => (S.ch['c' + c.n] = S.ch['c' + c.n] || {});
-  const stepsBar = () => `<div class="steps">${[['listen', '1 · Listen'], ['echo', '2 · Copy me'], ['solo', '3 · By myself']].map(([k, t]) => {
+  const stepsBar = () => `<div class="pnav">${c.n > 1 ? `<button class="btn ghost sm" id="pPrev">‹ Phrase ${c.n - 1}</button>` : '<span></span>'}<span class="pn">Phrase ${c.n} of ${CHUNKS.length}</span>${c.n < CHUNKS.length ? `<button class="btn ghost sm" id="pNextP">Phrase ${c.n + 1} ›</button>` : '<span></span>'}</div><div class="steps">${[['listen', '1 · Listen'], ['echo', '2 · Copy me'], ['solo', '3 · By myself']].map(([k, t]) => {
     const order = ['listen', 'echo', 'solo']; const cls = k === step ? 'on' : order.indexOf(k) < order.indexOf(step) ? 'done' : '';
-    return `<span class="${cls}">${t}</span>`; }).join('')}</div>`;
+    return `<button class="${cls}" data-step="${k}">${t}</button>`; }).join('')}</div>`;
   const head = () => `${stepsBar()}<div class="bigpic pop">${c.pic}</div>`;
+  const bindHead = () => {
+    on('#pPrev', () => route('practice', { n: c.n - 1, step: 'listen' }));
+    on('#pNextP', () => route('practice', { n: c.n + 1, step: 'listen' }));
+    document.querySelectorAll('.steps [data-step]').forEach(b => b.addEventListener('click', () => {
+      const k = b.dataset.step; if (k === step) return;
+      stopAll(); abortListening(); routeId++;
+      cur.p = Object.assign({}, cur.p, { step: k }); S.last = { name: 'practice', p: Object.assign({}, cur.p) }; save();
+      VIEWS.practice(cur.p);
+    }));
+  };
   const alive = () => rid === routeId;
   const nextPhrase = () => {
     if (p.mission) { const left = p.mission.filter(n => !dayLog().did['c' + n] && n !== c.n); return left.length ? left[0] : null; }
@@ -1010,7 +1065,7 @@ VIEWS.practice = (p) => {
 
   /* ---- step 1: listen ---- */
   const drawListen = async () => {
-    step = 'listen';
+    step = 'listen'; cur.p.step = step; setTimeout(bindHead, 0);
     V().innerHTML = `<section class="card">${head()}${phraseHTML(c)}<p class="meaning"></p><p class="move"></p>
       <div class="row acts"><button class="btn sky" id="pPlay">▶ Listen</button><button class="btn ghost" id="pSlow">🐢 Slow</button></div>
       <div class="acts"><button class="btn gold wide" id="pReady" disabled>Next ›</button></div></section>`;
@@ -1032,7 +1087,7 @@ VIEWS.practice = (p) => {
 
   /* ---- step 2: copy Jenny ---- */
   const drawEcho = async () => {
-    step = 'echo';
+    step = 'echo'; cur.p.step = step; setTimeout(bindHead, 0);
     V().innerHTML = `<section class="card">${head()}${phraseHTML(c)}<p class="meaning"></p>
       <div id="micHost" class="acts"></div>
       <div class="row acts"><button class="btn ghost" id="pAgain">▶ Listen</button><button class="btn ghost" id="pSlow">🐢 Slow</button></div></section>`;
@@ -1073,7 +1128,7 @@ VIEWS.practice = (p) => {
 
   /* ---- step 3: by myself ---- */
   const drawSolo = async () => {
-    step = 'solo'; tries = 0;
+    step = 'solo'; tries = 0; cur.p.step = step; setTimeout(bindHead, 0);
     V().innerHTML = `<section class="card">${head()}${phraseHTML(c, { hidden: true })}<p class="meaning"></p>
       <div id="micHost" class="acts"></div>
       <div class="row acts" id="soloHelp"><button class="btn ghost" id="pHint">💡 Help</button></div></section>`;
@@ -1538,7 +1593,7 @@ VIEWS.grown = () => {
       <li>“Barnum” is said in English, the same way it's written in the script.</li>
       <li>Press any word in a phrase to hear just that word. 🐢 plays it slowly.</li>
       <li>Big Stage plays the cues from the script: everyone says 致 Barnum, Barnum says 谢谢 and 为什么, so she learns when to speak.</li>
-      <li>Progress is saved on this phone in this browser.</li>
+      <li>Progress is saved on this phone in this browser. On iPhone it's safest to add the game to your Home Screen: in Safari press Share, then <b>Add to Home Screen</b>, and always open it from that icon. Opening the link from WhatsApp or in a Private tab uses a separate, temporary memory.</li>
     </ul></section>
   <section class="card" id="resetBox"><div class="eyebrow">Start over</div><button class="btn ghost" id="reset">Reset all progress</button></section>`;
   $('#reward').value = S.reward || '';
